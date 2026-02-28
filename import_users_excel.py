@@ -97,11 +97,11 @@ def create_users_and_schedules(users_data):
 
             print("Usuario creado: {} ({})".format(user.get_full_name(), user.run))
 
-            # Crear horario por defecto (08:00 con 15 min tolerancia)
+            # Crear horario por defecto (07:45 con 15 min tolerancia)
             try:
                 horario = HorarioFuncionario.objects.create(
                     funcionario=user,
-                    hora_entrada=time(8, 0),
+                    hora_entrada=time(7, 45),
                     tolerancia_minutos=15,
                     activo=True
                 )

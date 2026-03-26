@@ -94,10 +94,11 @@ class SolicitudForm(forms.ModelForm):
 class SolicitudAdminEditForm(forms.ModelForm):
     """Formulario para que admins editen solicitudes existentes, incluyendo el estado"""
     jornada = forms.ChoiceField(
-        choices=[('AM', 'Mañana (AM)'), ('PM', 'Tarde (PM)')],
+        choices=[('AM', 'Mañana (AM)'), ('PM', 'Tarde (PM)'), ('FD', 'Día Completo')],
         widget=forms.RadioSelect(attrs={'class': 'jornada-radio'}),
         required=False,
-        label='Jornada (medio día)'
+        label='Jornada',
+        initial='FD'
     )
 
     class Meta:

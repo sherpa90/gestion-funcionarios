@@ -292,15 +292,15 @@ class SolicitudActionView(LoginRequiredMixin, UserPassesTestMixin, View):
                 solicitud.motivo_cancelacion = request.POST.get('motivo_cancelacion', 'Cancelado por administrador')
                 solicitud.cancelled_by = request.user
                 solicitud.cancelled_at = timezone.now()
-                # Devolver los días al usuario
-                solicitud.usuario.dias_disponibles += solicitud.dias_solicitados
+                # Devolver los días al usuario (tope 6.0)
+                solicitud.usuario.dias_disponibles = min(solicitud.usuario.dias_disponibles + solicitud.dias_solicitados, 6.0)
                 solicitud.usuario.save()
                 solicitud.save()
                 registrar_log(
                     usuario=request.user,
                     tipo='DELETE',
                     accion='Cancelación Admin de Permiso',
-                    descripcion=f'Admin canceló permiso aprobado de {solicitud.usuario.get_full_name()}',
+                    descripcion=f'Admin canceló permiso aprobado de {solicitud.usuario.get_full_name()} ({solicitud.dias_solicitados} días devueltos)',
                     ip_address=get_client_ip(request)
                 )
                 messages.success(request, f'Solicitud cancelada. Se devolvieron {solicitud.dias_solicitados} días a {solicitud.usuario.get_full_name()}.')
@@ -417,13 +417,13 @@ class SolicitudAdminEditView(LoginRequiredMixin, UserPassesTestMixin, UpdateView
             )
 
         # Manejar cambios de estado que afectan el saldo de días
-        nuevo_estado = form.cleaned_data.get('estado')
+        nuevo_estado = form.cleaned_data.get('estado') or estado_anterior
 
         # Si el estado cambió, manejar el saldo de días
         if estado_anterior != nuevo_estado:
-            # Si cambió de aprobado a otro estado, devolver días
+            # Si cambió de aprobado a otro estado, devolver días (con tope 6.0)
             if estado_anterior == 'APROBADO' and nuevo_estado != 'APROBADO':
-                form.instance.usuario.dias_disponibles += dias_anteriores
+                form.instance.usuario.dias_disponibles = min(form.instance.usuario.dias_disponibles + dias_anteriores, 6.0)
                 form.instance.usuario.save()
 
             # Si cambió a aprobado desde otro estado, descontar días
@@ -440,15 +440,17 @@ class SolicitudAdminEditView(LoginRequiredMixin, UserPassesTestMixin, UpdateView
         elif nuevo_estado == 'APROBADO' and 'dias_solicitados' in form.changed_data:
             diferencia = dias_anteriores - form.instance.dias_solicitados
             # Si diferencia > 0, devuelve días. Si diferencia < 0, descuenta más días.
-            if form.instance.usuario.dias_disponibles + diferencia >= 0:
-                form.instance.usuario.dias_disponibles += diferencia
+            # Al devolver días, aplicamos el tope de 6.0
+            nuevo_saldo = form.instance.usuario.dias_disponibles + diferencia
+            if nuevo_saldo >= 0:
+                form.instance.usuario.dias_disponibles = min(nuevo_saldo, 6.0)
                 form.instance.usuario.save()
             else:
                 form.add_error(None, f"Ajuste fallido. Saldo insuficiente para aumentar los días del permiso.")
                 return self.form_invalid(form)
 
-        # Actualizar el estado
-        form.instance.estado = nuevo_estado
+        # Actualizar el estado de forma segura
+        form.instance.estado = nuevo_estado or estado_anterior
 
         # Registrar quién editó
         form.instance.updated_at = timezone.now()
@@ -487,9 +489,9 @@ class SolicitudAdminDeleteView(LoginRequiredMixin, UserPassesTestMixin, View):
         solicitud.cancelled_by = request.user
         solicitud.cancelled_at = timezone.now()
 
-        # Si la solicitud estaba aprobada, devolver los días al usuario
+        # Si la solicitud estaba aprobada, devolver los días al usuario (tope 6.0)
         if estado_original == 'APROBADO':
-            solicitud.usuario.dias_disponibles += solicitud.dias_solicitados
+            solicitud.usuario.dias_disponibles = min(solicitud.usuario.dias_disponibles + solicitud.dias_solicitados, 6.0)
             solicitud.usuario.save()
 
         solicitud.save()

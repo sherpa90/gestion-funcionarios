@@ -46,6 +46,7 @@ class SolicitudForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
         super().__init__(*args, **kwargs)
         # La jornada se controla con JavaScript en el template
         # No ocultamos el campo aquí, lo manejamos con CSS/JS
@@ -71,8 +72,15 @@ class SolicitudForm(forms.ModelForm):
         jornada = cleaned_data.get('jornada')
 
         if fecha_inicio and dias:
-            if not BusinessDayCalculator.is_business_day(fecha_inicio):
-                raise forms.ValidationError("La fecha de inicio debe ser un día hábil.")
+            # Obtener si el usuario es sereno
+            user = self.user or getattr(self.instance, 'usuario', None)
+            is_sereno = user.funcion == 'SERENO' if user else False
+
+            if not BusinessDayCalculator.is_business_day(fecha_inicio, is_sereno=is_sereno):
+                if is_sereno:
+                    raise forms.ValidationError("La fecha de inicio no puede ser un feriado (festivo).")
+                else:
+                    raise forms.ValidationError("La fecha de inicio debe ser un día hábil (Lunes a Viernes).")
 
         # Validar jornada solo si es medio día
         if dias and dias % 1 == 0.5:  # Si termina en .5
@@ -80,6 +88,59 @@ class SolicitudForm(forms.ModelForm):
                 raise forms.ValidationError("Debes seleccionar la jornada (mañana o tarde) para permisos de medio día.")
             if jornada not in ['AM', 'PM']:
                 raise forms.ValidationError("La jornada debe ser AM o PM para permisos de medio día.")
+
+        return cleaned_data
+
+class SolicitudAdminEditForm(forms.ModelForm):
+    """Formulario para que admins editen solicitudes existentes, incluyendo el estado"""
+    jornada = forms.ChoiceField(
+        choices=[('AM', 'Mañana (AM)'), ('PM', 'Tarde (PM)')],
+        widget=forms.RadioSelect(attrs={'class': 'jornada-radio'}),
+        required=False,
+        label='Jornada (medio día)'
+    )
+
+    class Meta:
+        model = SolicitudPermiso
+        fields = ['fecha_inicio', 'dias_solicitados', 'jornada', 'estado', 'observacion', 'archivo_justificacion']
+        widgets = {
+            'fecha_inicio': forms.DateInput(attrs={
+                'type': 'date',
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500'
+            }),
+            'dias_solicitados': forms.Select(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500',
+                'id': 'id_dias_solicitados'
+            }),
+            'estado': forms.Select(attrs={
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500'
+            }),
+            'observacion': forms.Textarea(attrs={
+                'rows': 3,
+                'class': 'w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none'
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            # Personalizar labels si es necesario
+            pass
+
+    def clean(self):
+        cleaned_data = super().clean()
+        fecha_inicio = cleaned_data.get('fecha_inicio')
+        dias = cleaned_data.get('dias_solicitados')
+
+        if fecha_inicio and dias:
+            user = getattr(self.instance, 'usuario', None)
+            is_sereno = user.funcion == 'SERENO' if user else False
+            
+            if not BusinessDayCalculator.is_business_day(fecha_inicio, is_sereno=is_sereno):
+                if is_sereno:
+                    raise forms.ValidationError("La fecha de inicio no puede ser un feriado (festivo).")
+                else:
+                    raise forms.ValidationError("La fecha de inicio debe ser un día hábil (Lunes a Viernes).")
 
         return cleaned_data
 
@@ -135,8 +196,14 @@ class SolicitudBypassForm(forms.ModelForm):
         jornada = cleaned_data.get('jornada')
 
         if fecha_inicio and dias:
-            if not BusinessDayCalculator.is_business_day(fecha_inicio):
-                raise forms.ValidationError("La fecha de inicio debe ser un día hábil.")
+            user = cleaned_data.get('usuario')
+            is_sereno = user.funcion == 'SERENO' if user else False
+
+            if not BusinessDayCalculator.is_business_day(fecha_inicio, is_sereno=is_sereno):
+                if is_sereno:
+                    raise forms.ValidationError("La fecha de inicio no puede ser un feriado (festivo).")
+                else:
+                    raise forms.ValidationError("La fecha de inicio debe ser un día hábil (Lunes a Viernes).")
 
         # Validar jornada solo si es medio día
         if dias and dias % 1 == 0.5:  # Si termina en .5

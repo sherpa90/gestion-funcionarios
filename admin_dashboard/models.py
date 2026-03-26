@@ -14,6 +14,8 @@ class SystemLog(models.Model):
         ('ERROR', 'Error'),
         ('EXPORT', 'Exportación'),
         ('IMPORT', 'Importación'),
+        ('USER', 'Usuario'),
+        ('SYSTEM', 'Sistema'),
     ]
     
     usuario = models.ForeignKey(

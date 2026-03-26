@@ -17,13 +17,68 @@
             <p class="text-[11px] font-bold text-gray-400 mt-2 uppercase tracking-widest">Auditoría y trazabilidad de eventos críticos</p>
         </div>
         <div class="flex items-center gap-4">
-            <span class="text-[10px] font-black text-slate-400 uppercase bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">Últimos 50 Registros</span>
+            <span class="text-[10px] font-black text-slate-400 uppercase bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                Página {{ logs.number }} de {{ logs.paginator.num_pages }} ({{ logs.paginator.count }} total)
+            </span>
             <a href="{% url 'admin_dashboard:dashboard' %}"
                 class="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-black rounded-xl hover:bg-gray-50 transition-all shadow-sm flex items-center gap-2">
                 <i class="fas fa-arrow-left text-xs opacity-40"></i>
                 Dashboard
             </a>
         </div>
+    </div>
+
+    <!-- Filtros de Búsqueda -->
+    <div class="mb-8 bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-xl hover:shadow-slate-500/5 transition-all duration-500">
+        <form method="get" class="flex flex-wrap items-end gap-6">
+            <div class="flex-1 min-w-[300px]">
+                <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 block">Buscar en la actividad</label>
+                <div class="relative group">
+                    <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-xs transition-colors group-focus-within:text-slate-900"></i>
+                    <input type="text" name="q" value="{{ current_q|default:'' }}" placeholder="Ej: Aprobación, nombre del usuario..." 
+                        class="w-full pl-11 pr-4 py-3.5 bg-gray-50/50 border border-gray-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 focus:bg-white transition-all outline-none">
+                </div>
+            </div>
+            
+            <div class="w-56">
+                <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 block">Rol del Autor</label>
+                <div class="relative">
+                    <select name="role" onchange="this.form.submit()" 
+                        class="w-full pl-4 pr-10 py-3.5 bg-gray-50/50 border border-gray-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 focus:bg-white transition-all appearance-none cursor-pointer outline-none">
+                        <option value="">Todos los roles</option>
+                        {% for role_code, role_name in role_choices %}
+                        <option value="{{ role_code }}" {% if current_role == role_code %}selected{% endif %}>{{ role_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <i class="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-[10px] pointer-events-none"></i>
+                </div>
+            </div>
+
+            <div class="w-56">
+                <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 block">Tipo de Evento</label>
+                <div class="relative">
+                    <select name="tipo" onchange="this.form.submit()" 
+                        class="w-full pl-4 pr-10 py-3.5 bg-gray-50/50 border border-gray-100 rounded-2xl text-sm font-bold focus:ring-4 focus:ring-slate-900/5 focus:border-slate-900 focus:bg-white transition-all appearance-none cursor-pointer outline-none">
+                        <option value="">Todos los tipos</option>
+                        {% for tipo_code, tipo_name in tipo_choices %}
+                        <option value="{{ tipo_code }}" {% if current_tipo == tipo_code %}selected{% endif %}>{{ tipo_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <i class="fas fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-[10px] pointer-events-none"></i>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button type="submit" class="px-8 py-3.5 bg-slate-900 text-white text-sm font-black rounded-2xl hover:bg-slate-800 transition-all shadow-xl shadow-slate-900/20 active:scale-95">
+                    Filtrar
+                </button>
+                <a href="{% url 'admin_dashboard:system_logs_export' %}?{% if current_role %}role={{ current_role }}&{% endif %}{% if current_tipo %}tipo={{ current_tipo }}&{% endif %}{% if current_q %}q={{ current_q }}{% endif %}" 
+                    class="px-8 py-3.5 bg-emerald-600 text-white text-sm font-black rounded-2xl hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-600/20 flex items-center gap-3 active:scale-95">
+                    <i class="fas fa-file-excel"></i>
+                    Exportar
+                </a>
+            </div>
+        </form>
     </div>
 
     <!-- Tabla de Logs Premium -->
@@ -61,7 +116,12 @@
                                     <p class="text-sm font-black text-gray-900 leading-tight">
                                         {{ log.usuario.get_full_name|default:"Sistema Automático" }}
                                     </p>
-                                    <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-1">{{ log.ip_address }}</span>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        <span class="text-[8px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                            {{ log.usuario.get_role_display|default:"System" }}
+                                        </span>
+                                        <span class="text-[9px] font-bold text-slate-400 tabular-nums">{{ log.ip_address }}</span>
+                                    </div>
                                 </div>
                             </div>
                         </td>
@@ -75,6 +135,7 @@
                                         {% elif log.tipo == 'DELETE' %}bg-rose-50 text-rose-700 border-rose-100
                                         {% elif log.tipo == 'APPROVE' %}bg-indigo-50 text-indigo-700 border-indigo-100
                                         {% elif log.tipo == 'REJECT' %}bg-orange-50 text-orange-700 border-orange-100
+                                        {% elif log.tipo == 'USER' %}bg-purple-50 text-purple-700 border-purple-100
                                         {% elif log.tipo == 'ERROR' %}bg-red-50 text-red-700 border-red-100
                                         {% else %}bg-slate-50 text-slate-700 border-slate-100{% endif %}">
                                         {{ log.get_tipo_display }}
@@ -91,8 +152,8 @@
                     <tr>
                         <td colspan="3" class="px-10 py-24 text-center">
                             <div class="flex flex-col items-center opacity-30">
-                                <i class="fas fa-inbox text-5xl mb-4"></i>
-                                <p class="text-[11px] font-black text-gray-500 uppercase tracking-widest">Sin actividad registrada</p>
+                                <i class="fas fa-inbox text-5xl mb-4 text-slate-300"></i>
+                                <p class="text-[11px] font-black text-gray-500 uppercase tracking-widest">Sin actividad registrada para los filtros actuales</p>
                             </div>
                         </td>
                     </tr>
@@ -102,11 +163,60 @@
         </div>
     </div>
 
+    <!-- Paginación Premium -->
+    {% if logs.paginator.num_pages > 1 %}
+    <div class="mt-8 flex items-center justify-between px-10 py-8 bg-white rounded-[2.5rem] border border-gray-100 shadow-sm">
+        <div class="flex flex-col">
+            <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Página actual</p>
+            <p class="text-sm font-black text-slate-900 leading-none">
+                {{ logs.number }} <span class="text-slate-300 mx-1">/</span> {{ logs.paginator.num_pages }}
+                <span class="ml-3 text-[10px] text-gray-400 bg-gray-50 px-2.5 py-1 rounded-lg border border-gray-100">
+                    {{ logs.paginator.count }} registros en total
+                </span>
+            </p>
+        </div>
+        
+        <div class="flex items-center gap-3">
+            {% if logs.has_previous %}
+            <a href="?page=1{% if current_role %}&role={{ current_role }}{% endif %}{% if current_tipo %}&tipo={{ current_tipo }}{% endif %}{% if current_q %}&q={{ current_q }}{% endif %}" 
+                class="w-12 h-12 flex items-center justify-center rounded-2xl bg-white text-slate-900 hover:bg-slate-900 hover:text-white transition-all border border-gray-100 shadow-sm active:scale-95"
+                title="Primera página">
+                <i class="fas fa-angles-left text-xs"></i>
+            </a>
+            <a href="?page={{ logs.previous_page_number }}{% if current_role %}&role={{ current_role }}{% endif %}{% if current_tipo %}&tipo={{ current_tipo }}{% endif %}{% if current_q %}&q={{ current_q }}{% endif %}" 
+                class="px-6 h-12 flex items-center justify-center rounded-2xl bg-white text-slate-900 hover:bg-slate-900 hover:text-white transition-all border border-gray-100 shadow-sm gap-2 font-black text-sm active:scale-95">
+                <i class="fas fa-chevron-left text-[10px]"></i>
+                Anterior
+            </a>
+            {% endif %}
+            
+            <div class="flex items-center gap-2 mx-4">
+                <span class="w-12 h-12 flex items-center justify-center bg-slate-900 text-white font-black text-sm rounded-2xl shadow-xl shadow-slate-900/20">
+                    {{ logs.number }}
+                </span>
+            </div>
+            
+            {% if logs.has_next %}
+            <a href="?page={{ logs.next_page_number }}{% if current_role %}&role={{ current_role }}{% endif %}{% if current_tipo %}&tipo={{ current_tipo }}{% endif %}{% if current_q %}&q={{ current_q }}{% endif %}" 
+                class="px-6 h-12 flex items-center justify-center rounded-2xl bg-white text-slate-900 hover:bg-slate-900 hover:text-white transition-all border border-gray-100 shadow-sm gap-2 font-black text-sm active:scale-95">
+                Siguiente
+                <i class="fas fa-chevron-right text-[10px]"></i>
+            </a>
+            <a href="?page={{ logs.paginator.num_pages }}{% if current_role %}&role={{ current_role }}{% endif %}{% if current_tipo %}&tipo={{ current_tipo }}{% endif %}{% if current_q %}&q={{ current_q }}{% endif %}" 
+                class="w-12 h-12 flex items-center justify-center rounded-2xl bg-white text-slate-900 hover:bg-slate-900 hover:text-white transition-all border border-gray-100 shadow-sm active:scale-95"
+                title="Última página">
+                <i class="fas fa-angles-right text-xs"></i>
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Optimization Notice -->
     <div class="mt-8 flex items-center justify-center gap-3 py-4 px-6 bg-amber-50 border border-amber-100 rounded-2xl max-w-2xl mx-auto shadow-sm shadow-amber-500/5">
         <i class="fas fa-bolt text-amber-500 text-sm"></i>
         <p class="text-[10px] font-black text-amber-700 uppercase tracking-widest">
-            Sistema optimizado: Solo se registran eventos críticos para garantizar el máximo rendimiento
+            Sistema optimizado: Mostrando logs de actividad procesados con alta eficiencia
         </p>
     </div>
 </div>

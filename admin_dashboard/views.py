@@ -1,18 +1,21 @@
-from django.shortcuts import render, get_object_or_404, redirect
+from django.shortcuts import render, get_object_or_404, redirect  # Force reload triggering
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.views.generic import TemplateView, View
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from django.contrib import messages
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.http import FileResponse, HttpResponse
 from datetime import timedelta
 import os
 import zipfile
 import tempfile
 import io
 import shutil
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
 from django.conf import settings
 from django.core.management import call_command
-from django.http import FileResponse
 
 from users.models import CustomUser
 from permisos.models import SolicitudPermiso
@@ -304,7 +307,7 @@ class BlockedUsersView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
 
 
 class SystemLogsView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
-    """Vista simple de logs del sistema - quién hizo qué"""
+    """Vista avanzada de logs del sistema con filtros y paginación"""
     template_name = 'admin_dashboard/logs.html'
     
     def test_func(self):
@@ -314,10 +317,124 @@ class SystemLogsView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         
-        # Obtener logs recientes (últimos 50)
-        context['logs'] = SystemLog.objects.select_related('usuario').order_by('-timestamp')[:50]
+        # Filtros
+        role = self.request.GET.get('role')
+        tipo = self.request.GET.get('tipo')
+        q = self.request.GET.get('q')
+        
+        logs_queryset = SystemLog.objects.select_related('usuario').order_by('-timestamp')
+        
+        if role:
+            logs_queryset = logs_queryset.filter(usuario__role=role)
+        if tipo:
+            logs_queryset = logs_queryset.filter(tipo=tipo)
+        if q:
+            logs_queryset = logs_queryset.filter(
+                Q(accion__icontains=q) | 
+                Q(descripcion__icontains=q) | 
+                Q(usuario__first_name__icontains=q) | 
+                Q(usuario__last_name__icontains=q)
+            )
+            
+        # Paginación (30 por página)
+        page = self.request.GET.get('page', 1)
+        paginator = Paginator(logs_queryset, 30)
+        
+        try:
+            logs_paginados = paginator.page(page)
+        except PageNotAnInteger:
+            logs_paginados = paginator.page(1)
+        except EmptyPage:
+            logs_paginados = paginator.page(paginator.num_pages)
+            
+        context['logs'] = logs_paginados
+        context['role_choices'] = CustomUser.ROLE_CHOICES
+        context['tipo_choices'] = SystemLog.TIPO_CHOICES
+        context['current_role'] = role
+        context['current_tipo'] = tipo
+        context['current_q'] = q
         
         return context
+
+
+class ExportSystemLogsView(LoginRequiredMixin, UserPassesTestMixin, View):
+    """Exporta los logs actuales a formato Excel"""
+    
+    def test_func(self):
+        return self.request.user.role in ['ADMIN', 'DIRECTOR', 'DIRECTIVO', 'SECRETARIA']
+        
+    def get(self, request):
+        # Mismos filtros que en la vista principal
+        role = request.GET.get('role')
+        tipo = request.GET.get('tipo')
+        q = request.GET.get('q')
+        
+        logs_queryset = SystemLog.objects.select_related('usuario').order_by('-timestamp')
+        
+        if role:
+            logs_queryset = logs_queryset.filter(usuario__role=role)
+        if tipo:
+            logs_queryset = logs_queryset.filter(tipo=tipo)
+        if q:
+            logs_queryset = logs_queryset.filter(
+                Q(accion__icontains=q) | 
+                Q(descripcion__icontains=q) | 
+                Q(usuario__first_name__icontains=q) | 
+                Q(usuario__last_name__icontains=q)
+            )
+            
+        # Limitar a los últimos 2000 logs para exportación para evitar problemas de memoria
+        logs_queryset = logs_queryset[:2000]
+        
+        # Crear Workbook de Excel
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Logs de Actividad"
+        
+        # Estilos para encabezados
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+        alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Encabezados
+        headers = ["Fecha y Hora", "Usuario", "Rol", "Tipo", "Acción", "Descripción", "IP"]
+        ws.append(headers)
+        
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = alignment
+            
+        # Agregar datos
+        for log in logs_queryset:
+            fecha_local = timezone.localtime(log.timestamp).strftime("%d/%m/%Y %H:%M:%S")
+            usuario_str = log.usuario.get_full_name() if log.usuario else "Sistema"
+            rol_str = log.usuario.get_role_display() if log.usuario else "-"
+            tipo_str = log.get_tipo_display()
+            
+            ws.append([
+                fecha_local,
+                usuario_str,
+                rol_str,
+                tipo_str,
+                log.accion,
+                log.descripcion,
+                log.ip_address or "-"
+            ])
+            
+        # Ajustar anchos de columna
+        column_widths = [20, 25, 15, 15, 30, 60, 15]
+        for i, width in enumerate(column_widths, 1):
+            ws.column_dimensions[chr(64 + i)].width = width
+            
+        # Crear respuesta HTTP
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename=logs_actividad_{timezone.now().strftime("%Y%m%d_%H%M")}.xlsx'
+        
+        wb.save(response)
+        return response
 
 
 class SystemBackupView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):

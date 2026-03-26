@@ -8,7 +8,7 @@ from django.utils import timezone
 from django.db.models import Q, Sum
 from django.core.paginator import Paginator
 from .models import SolicitudPermiso
-from .forms import SolicitudForm, SolicitudBypassForm
+from .forms import SolicitudForm, SolicitudBypassForm, SolicitudAdminEditForm
 from users.models import CustomUser
 from core.services import BusinessDayCalculator
 from admin_dashboard.utils import registrar_log, get_client_ip
@@ -40,12 +40,18 @@ class SolicitudCreateView(LoginRequiredMixin, CreateView):
     template_name = 'permisos/solicitud_form.html'
     success_url = reverse_lazy('dashboard_funcionario')
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['user'] = self.request.user
+        return kwargs
+
     def form_valid(self, form):
         form.instance.usuario = self.request.user
         # Calcular fecha termino
         form.instance.fecha_termino = BusinessDayCalculator.calculate_end_date(
             form.instance.fecha_inicio,
-            form.instance.dias_solicitados
+            form.instance.dias_solicitados,
+            is_sereno=(form.instance.usuario.funcion == 'SERENO')
         )
 
         # Validar saldo considerando solicitudes pendientes
@@ -88,7 +94,8 @@ class SolicitudBypassView(LoginRequiredMixin, UserPassesTestMixin, CreateView):
             # Calcular fecha termino
             form.instance.fecha_termino = BusinessDayCalculator.calculate_end_date(
                 form.instance.fecha_inicio, 
-                form.instance.dias_solicitados
+                form.instance.dias_solicitados,
+                is_sereno=(form.instance.usuario.funcion == 'SERENO')
             )
             
             # Validar saldo considerando solicitudes pendientes
@@ -384,7 +391,7 @@ class SolicitudAdminManagementView(LoginRequiredMixin, UserPassesTestMixin, List
 class SolicitudAdminEditView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     """Vista para que admins/secretarias editen cualquier solicitud de permiso"""
     model = SolicitudPermiso
-    form_class = SolicitudForm
+    form_class = SolicitudAdminEditForm
     template_name = 'permisos/admin_edit.html'
     success_url = reverse_lazy('admin_management')
 
@@ -405,24 +412,39 @@ class SolicitudAdminEditView(LoginRequiredMixin, UserPassesTestMixin, UpdateView
         if 'fecha_inicio' in form.changed_data or 'dias_solicitados' in form.changed_data:
             form.instance.fecha_termino = BusinessDayCalculator.calculate_end_date(
                 form.instance.fecha_inicio,
-                form.instance.dias_solicitados
+                form.instance.dias_solicitados,
+                is_sereno=(form.instance.usuario.funcion == 'SERENO')
             )
 
         # Manejar cambios de estado que afectan el saldo de días
         nuevo_estado = form.cleaned_data.get('estado')
 
-        # Si cambió de aprobado a otro estado, devolver días
-        if estado_anterior == 'APROBADO' and nuevo_estado != 'APROBADO':
-            form.instance.usuario.dias_disponibles += dias_anteriores
-            form.instance.usuario.save()
+        # Si el estado cambió, manejar el saldo de días
+        if estado_anterior != nuevo_estado:
+            # Si cambió de aprobado a otro estado, devolver días
+            if estado_anterior == 'APROBADO' and nuevo_estado != 'APROBADO':
+                form.instance.usuario.dias_disponibles += dias_anteriores
+                form.instance.usuario.save()
 
-        # Si cambió a aprobado desde otro estado, descontar días
-        elif estado_anterior != 'APROBADO' and nuevo_estado == 'APROBADO':
-            if form.instance.usuario.dias_disponibles >= form.instance.dias_solicitados:
-                form.instance.usuario.dias_disponibles -= form.instance.dias_solicitados
+            # Si cambió a aprobado desde otro estado, descontar días
+            elif estado_anterior != 'APROBADO' and nuevo_estado == 'APROBADO':
+                if form.instance.usuario.dias_disponibles >= form.instance.dias_solicitados:
+                    form.instance.usuario.dias_disponibles -= form.instance.dias_solicitados
+                    form.instance.usuario.save()
+                else:
+                    form.add_error(None, f"El usuario no tiene suficientes días disponibles ({form.instance.usuario.dias_disponibles} disponibles, {form.instance.dias_solicitados} solicitados).")
+                    return self.form_invalid(form)
+
+        # Si el estado NO cambió pero es APROBADO y cambiaron los días solicitados,
+        # debemos ajustar el saldo (devolver anteriores, descontar nuevos)
+        elif nuevo_estado == 'APROBADO' and 'dias_solicitados' in form.changed_data:
+            diferencia = dias_anteriores - form.instance.dias_solicitados
+            # Si diferencia > 0, devuelve días. Si diferencia < 0, descuenta más días.
+            if form.instance.usuario.dias_disponibles + diferencia >= 0:
+                form.instance.usuario.dias_disponibles += diferencia
                 form.instance.usuario.save()
             else:
-                form.add_error(None, f"El usuario no tiene suficientes días disponibles ({form.instance.usuario.dias_disponibles} disponibles, {form.instance.dias_solicitados} solicitados).")
+                form.add_error(None, f"Ajuste fallido. Saldo insuficiente para aumentar los días del permiso.")
                 return self.form_invalid(form)
 
         # Actualizar el estado

@@ -102,7 +102,7 @@ urlpatterns = [
     path('liquidaciones/', include('liquidaciones.urls')),
     path('equipos/', include('equipos.urls')),
     path('usuarios/', include('users.urls')),
-    path('dashboard/admin/', include('admin_dashboard.urls')),
+    path('dashboard/admin/', include(('admin_dashboard.urls', 'admin_dashboard'), namespace='admin_dashboard')),
     path('asistencia/', include('asistencia.urls')),
 
     # Health checks and monitoring
